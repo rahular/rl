@@ -1,20 +1,21 @@
 import random
-import numpy as np
 
 from collections import defaultdict
 from gridworld import GridWorld
 
 class qAgent(object):
-    def __init__(self, lr=0.1, eps=1.0, discount=0.9):
+    def __init__(self, lr=0.1, eps=1.0, decay=0.9, discount=0.9):
         '''
         Params
         ------
         lr (float): learning rate (default=0.1)
         eps (float): exploration co-efficient; this will be decayed over time (default=1.0)
+        decay (float): the decay rate for `eps` (default=0.9)
         discount (float): future reward discount co-efficient (default=0.9)
         '''
         self.lr = lr
         self.eps = eps
+        self.decay = decay
         self.discount = discount
         self.qtable = defaultdict(lambda: defaultdict(float))
     
@@ -51,7 +52,7 @@ class qAgent(object):
         new_state = self.make_state(new_i, new_j)
         qprime, _ = self.act(self.qtable[new_state])
         self.qtable[old_state][action] = self.qtable[old_state][action] + self.lr * (reward + self.discount*qprime - self.qtable[old_state][action])
-        self.eps = max(0.2, self.eps*0.9)
+        self.eps = max(0.2, self.eps*self.decay)
 
 def show_qtable(agent, size):
     for i in range(size):
