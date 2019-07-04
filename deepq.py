@@ -29,8 +29,8 @@ GAMMA = 0.999
 EPS_START = 0.9
 EPS_END = 0.05
 EPS_DECAY = 1000
-NUM_EPISODES = 10000
-TEST_INTERVAL = 1000
+NUM_EPISODES = 5000
+TEST_INTERVAL = 500
 TARGET_UPDATE = 100
 device = 'gpu' if torch.cuda.is_available() else 'cpu'
 
@@ -50,8 +50,8 @@ class DQN(nn.Module):
         self.action_size = action_size
         self._steps = 0
 
-        self.l1 = nn.Linear(self.state_size, self.state_size)
-        self.l2 = nn.Linear(self.state_size, self.action_size)
+        self.l1 = nn.Linear(self.state_size, self.state_size*2)
+        self.l2 = nn.Linear(self.state_size*2, self.action_size)
 
     def forward(self, state):
         return self.l2(F.relu(self.l1(state)))
@@ -133,7 +133,7 @@ def test():
             break
 
 if __name__ == '__main__':
-    env = gym.make('CartPole-v1')
+    env = gym.make('CartPole-v0')
     policy_net = DQN(get_state_size(env), env.action_space.n).to(device)
     target_net = DQN(get_state_size(env), env.action_space.n).to(device)
     target_net.load_state_dict(policy_net.state_dict())
