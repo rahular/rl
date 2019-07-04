@@ -24,12 +24,13 @@ import numpy as np
 from itertools import count
 from collections import deque, namedtuple
 
-BATCH_SIZE = 128
-GAMMA = 0.99
-EPS_START = 1.0
+BATCH_SIZE = 512
+GAMMA = 0.999
+EPS_START = 0.9
 EPS_END = 0.05
-EPS_DECAY = 100
+EPS_DECAY = 1000
 NUM_EPISODES = 10000
+TEST_INTERVAL = 1000
 TARGET_UPDATE = 100
 device = 'gpu' if torch.cuda.is_available() else 'cpu'
 
@@ -37,20 +38,16 @@ Transition = namedtuple('Transition',
                         ('state', 'action', 'reward', 'next_state'))
 
 class DQN(nn.Module):
-    def __init__(self, state_size, action_size, eps=1.0, decay=0.999):
+    def __init__(self, state_size, action_size):
         '''
         Params
         ------
         state_size (int): size of each observation
         action_size (int): size of the action space
-        eps (float): initial value for greedy exploration (default=1.0)
-        decay (float): the rate at which `eps` is decayed (default=0.999)
         '''
         super(DQN, self).__init__()
         self.state_size = state_size
         self.action_size = action_size
-        self.decay = decay
-        self.eps = eps
         self._steps = 0
 
         self.l1 = nn.Linear(self.state_size, self.state_size)
@@ -111,7 +108,7 @@ def train():
     reward_batch = torch.cat(batch.reward)
 
     state_action_values = policy_net(state_batch).gather(1, action_batch)
-    next_state_values = torch.zeros(BATCH_SIZE, device=device)
+    next_state_values = -torch.ones(BATCH_SIZE, device=device)
     next_state_values[non_final_mask] = target_net(non_final_next_states).max(1)[0].detach()
     expected_state_action_values = (next_state_values * GAMMA) + reward_batch
 
@@ -136,7 +133,7 @@ def test():
             break
 
 if __name__ == '__main__':
-    env = gym.make('CartPole-v0')
+    env = gym.make('CartPole-v1')
     policy_net = DQN(get_state_size(env), env.action_space.n).to(device)
     target_net = DQN(get_state_size(env), env.action_space.n).to(device)
     target_net.load_state_dict(policy_net.state_dict())
@@ -144,13 +141,16 @@ if __name__ == '__main__':
 
     optimizer = torch.optim.Adam(policy_net.parameters())
     memory = Memory(maxlen=10**6)
+    all_rewards = []
 
     for i_episode in range(NUM_EPISODES):
+        cum_reward = 0.0
         state = env.reset()
         state = torch.from_numpy(state).float().unsqueeze(0)
         for t in count():
             action = policy_net.get_action(state)
             next_state, reward, done, _ = env.step(action.item())
+            cum_reward += reward
             reward = torch.tensor([reward], device=device)
 
             next_state = torch.from_numpy(next_state).float().unsqueeze(0)
@@ -159,10 +159,15 @@ if __name__ == '__main__':
             state = next_state
 
             train()
-            if done: break
+            if done: 
+                all_rewards.append(cum_reward)
+                break
         if i_episode % TARGET_UPDATE == 0:
-            print('Episode {} done with {} steps'.format(i_episode, t))
+            avg_reward = sum(all_rewards)/len(all_rewards)
+            print('Episode {} done with avg. reward {}'.format(i_episode, avg_reward))
             target_net.load_state_dict(policy_net.state_dict())
+            all_rewards = []
+        if i_episode % TEST_INTERVAL == 0:
             test()
 
     print('Complete')
