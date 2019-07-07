@@ -5,6 +5,7 @@ import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 
+from collections import namedtuple
 from itertools import count
 from torch.distributions import Categorical
 
@@ -21,6 +22,8 @@ env.seed(seed)
 np.random.seed(seed)
 torch.manual_seed(seed)
 
+SavedAction = namedtuple('SavedAction', ['log_prob', 'value'])
+
 class PGNet(nn.Module):
     def __init__(self, state_size, action_size):
         '''
@@ -33,28 +36,27 @@ class PGNet(nn.Module):
         self.state_size = state_size
         self.action_size = action_size
         
-        self.policy_history = torch.Tensor()
         self.episode_reward = []
+        self.saved_actions = []
 
         self.l1 = nn.Linear(self.state_size, self.state_size)
-        self.l2 = nn.Linear(self.state_size, self.action_size)
+        self.action_head = nn.Linear(self.state_size, self.action_size)
+        self.value_head = nn.Linear(self.state_size, 1)
         self.softmax = nn.Softmax(dim=1)
 
     def forward(self, state):
-        logits = self.l2(F.relu(self.l1(state)))
-        return self.softmax(logits)
+        action_logits = self.action_head(F.relu(self.l1(state)))
+        value = self.value_head(F.relu(self.l1(state)))
+        return self.softmax(action_logits), value
     
     def get_action(self, state, train=True):
-        output = self.forward(state)
-        c = Categorical(output)
+        action, value = self.forward(state)
+        c = Categorical(action)
         action = c.sample()
 
         if not train: return action
         
-        if self.policy_history.dim() != 0:
-            self.policy_history = torch.cat([self.policy_history, c.log_prob(action)])
-        else:
-            self.policy_history = (c.log_prob(action))
+        self.saved_actions.append(SavedAction(c.log_prob(action), value))
         return action
     
 def get_state_size(env):
@@ -72,14 +74,19 @@ def train():
         rewards.insert(0, R)
     rewards = torch.FloatTensor(rewards)
     rewards = (rewards - rewards.mean()) / (rewards.std() + np.finfo(np.float32).eps)
-    
-    loss = torch.sum(-torch.mul(policy_net.policy_history, rewards))
+
+    action_loss, value_loss = [], []
+    for (log_prob, value), reward in zip(policy_net.saved_actions, rewards):
+        advantage = reward - value.item()
+        action_loss.append(log_prob * advantage)
+        value_loss.append(F.smooth_l1_loss(value.squeeze(0), torch.Tensor([reward])))
+    loss = -torch.stack(action_loss).sum() + torch.stack(value_loss).sum()
     
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
     
-    policy_net.policy_history = torch.Tensor()
+    policy_net.saved_actions = []
     policy_net.episode_reward = []
 
 def test():

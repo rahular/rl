@@ -34,6 +34,14 @@ TEST_INTERVAL = 500
 TARGET_UPDATE = 100
 device = 'gpu' if torch.cuda.is_available() else 'cpu'
 
+env = gym.make('CartPole-v0')
+seed = 42
+
+random.seed(seed)
+env.seed(seed)
+np.random.seed(seed)
+torch.manual_seed(seed)
+
 Transition = namedtuple('Transition',
                         ('state', 'action', 'reward', 'next_state'))
 
@@ -133,7 +141,6 @@ def test():
             break
 
 if __name__ == '__main__':
-    env = gym.make('CartPole-v0')
     policy_net = DQN(get_state_size(env), env.action_space.n).to(device)
     target_net = DQN(get_state_size(env), env.action_space.n).to(device)
     target_net.load_state_dict(policy_net.state_dict())
@@ -141,7 +148,7 @@ if __name__ == '__main__':
 
     optimizer = torch.optim.Adam(policy_net.parameters())
     memory = Memory(maxlen=10**6)
-    all_rewards = []
+    running_reward = 10
 
     for i_episode in range(NUM_EPISODES):
         cum_reward = 0.0
@@ -160,15 +167,15 @@ if __name__ == '__main__':
 
             train()
             if done: 
-                all_rewards.append(cum_reward)
+                running_reward = 0.05 * cum_reward + (1 - 0.05) * running_reward
                 break
         if i_episode % TARGET_UPDATE == 0:
-            avg_reward = sum(all_rewards)/len(all_rewards)
-            print('Episode {} done with avg. reward {}'.format(i_episode, avg_reward))
+            print('Episode {} done with avg. reward {:.2f}'.format(i_episode, running_reward))
             target_net.load_state_dict(policy_net.state_dict())
-            all_rewards = []
         if i_episode % TEST_INTERVAL == 0:
             test()
-
-    print('Complete')
+        if running_reward > env.spec.reward_threshold:
+            print('Complete with avg. reward {:.2f}!'.format(running_reward))
+            break
+    for _ in range(10): test()
     env.close()
